@@ -1,42 +1,24 @@
 /**
- *
  * Worker Model
- *
  */
 
 export default class Worker {
-
   /**
-   *
    * Singleton map of all worker functions assigned to queue.
-   *
    */
-  static workers = {};
+  static workers = {}
 
   /**
-   *
    * Assign a worker function to the queue.
-   *
-   * Worker will be called to execute jobs associated with jobName.
-   *
-   * Worker function will receive job id and job payload as parameters.
-   *
-   * Example:
-   *
-   * function exampleJobWorker(id, payload) {
-   *  console.log(id); // UUID of job.
-   *  console.log(payload); // Payload of data related to job.
-   * }
-   *
-   * @param jobName {string} - Name associated with jobs assigned to this worker.
-   * @param worker {function} - The worker function that will execute jobs.
-   * @param options {object} - Worker options. See README.md for worker options info.
+   * - Worker will be called to execute jobs associated with `name`.
+   * @param {string} name Name associated with jobs assigned to this worker.
+   * @param {function} worker The worker function that will execute jobs.
+   * @param {object} options Worker options. See README.md for worker options info.
    */
-  addWorker(jobName, worker, options = {}) {
-
+  addWorker(name, worker, options = {}) {
     // Validate input.
-    if (!jobName || !worker) {
-      throw new Error('Job name and associated worker function must be supplied.');
+    if (!name || !worker) {
+      throw new Error("Job name and associated worker function must be supplied.")
     }
 
     // Attach options to worker
@@ -46,112 +28,91 @@ export default class Worker {
       onSuccess: options.onSuccess || null,
       onFailure: options.onFailure || null,
       onFailed: options.onFailed || null,
-      onComplete: options.onComplete || null
-    };
+      onComplete: options.onComplete || null,
+    }
 
-    Worker.workers[jobName] = worker;
+    Worker.workers[name] = worker
   }
 
   /**
-   *
    * Un-assign worker function from queue.
-   *
-   * @param jobName {string} - Name associated with jobs assigned to this worker.
+   * @param {string} name Name associated with jobs assigned to this worker.
    */
-  removeWorker(jobName) {
-    delete Worker.workers[jobName];
+  removeWorker(name) {
+    delete Worker.workers[name]
   }
 
   /**
-   *
    * Get the concurrency setting for a worker.
-   *
-   * Worker concurrency defaults to 1.
-   *
-   * @param jobName {string} - Name associated with jobs assigned to this worker.
+   * - Worker concurrency defaults to 1.
+   * @param {string} name Name associated with jobs assigned to this worker.
    * @throws Throws error if no worker is currently assigned to passed in job name.
    * @return {number}
    */
-  getConcurrency(jobName) {
-
+  getConcurrency(name) {
     // If no worker assigned to job name, throw error.
-    if (!Worker.workers[jobName]) {
-      throw new Error('Job ' + jobName + ' does not have a worker assigned to it.');
+    if (!Worker.workers[name]) {
+      throw new Error(`Job ${name} does not have a worker assigned to it.`)
     }
 
-    return Worker.workers[jobName].options.concurrency;
-
+    return Worker.workers[name].options.concurrency
   }
 
   /**
-   *
    * Execute the worker function assigned to the passed in job name.
-   *
-   * If job has a timeout setting, job will fail with a timeout exception upon reaching timeout.
-   *
+   * - If job has a timeout setting, job will fail with a timeout exception upon reaching timeout.
+   * @param {object} job Job to execute.
    * @throws Throws error if no worker is currently assigned to passed in job name.
-   * @param job {object} - Job realm model object
    */
   async executeJob(job) {
-
     // If no worker assigned to job name, throw error.
     if (!Worker.workers[job.name]) {
-      throw new Error('Job ' + job.name + ' does not have a worker assigned to it.');
+      throw new Error(`Job ${job.name} does not have a worker assigned to it.`)
     }
 
-    // Data must be cloned off the realm job object for the timeout logic promise race.
-    // More info: https://github.com/billmalarky/react-native-queue/issues/2#issuecomment-361418965
-    const jobId = job.id;
-    const jobName = job.name;
-    const jobTimeout = job.timeout;
-    const jobPayload = JSON.parse(job.payload);
+    const id = job.id
+    const name = job.name
+    const timeout = job.timeout
+    const payload = JSON.parse(job.payload)
 
-    if (jobTimeout > 0) {
-
-      let timeoutPromise = new Promise((resolve, reject) => {
-
+    // Run job with timeout to enforce set timeout value.
+    if (timeout > 0) {
+      const timeoutPromise = new Promise((resolve, reject) => {
         setTimeout(() => {
-          reject(new Error('TIMEOUT: Job id: ' + jobId + ' timed out in ' + jobTimeout + 'ms.'));
-        }, jobTimeout);
+          reject(new Error(`TIMEOUT: Job id: ${id} timed out in ${timeout}ms.`))
+        }, timeout)
+      })
 
-      });
-
-      return Promise.race([timeoutPromise, Worker.workers[jobName](jobId, jobPayload)]);
-
+      return Promise.race([timeoutPromise, Worker.workers[name](id, payload)])
     }
 
-    return Worker.workers[jobName](jobId, jobPayload);
+    // If no timeout is set, run job normally.
+    return Worker.workers[name](id, payload)
   }
 
   /**
-   *
    * Execute an asynchronous job lifecycle callback associated with related worker.
-   *
-   * @param callbackName {string} - Job lifecycle callback name.
-   * @param jobName {string} - Name associated with jobs assigned to related worker.
-   * @param jobId {string} - Unique id associated with job.
-   * @param jobPayload {object} - Data payload associated with job.
+   * @param {string} callback Job lifecycle callback name.
+   * @param {string} name Name associated with jobs assigned to related worker.
+   * @param {string} id Unique id associated with job.
+   * @param {object} payload Data payload associated with job.
    */
-  async executeJobLifecycleCallback(callbackName, jobName, jobId, jobPayload, error) {
-
+  async executeJobLifecycleCallback(callback, name, id, payload, error) {
     // Validate callback name
-    const validCallbacks = ['onStart', 'onSuccess', 'onFailure', 'onFailed', 'onComplete'];
-    if (!validCallbacks.includes(callbackName)) {
-      throw new Error('Invalid job lifecycle callback name.');
+    const validCallbacks = ["onStart", "onSuccess", "onFailure", "onFailed", "onComplete"]
+
+    if (!validCallbacks.includes(callback)) {
+      throw new Error("Invalid job lifecycle callback name.")
     }
 
     // Fire job lifecycle callback if set.
     // Uses a try catch statement to gracefully degrade errors in production.
-    if (Worker.workers[jobName].options[callbackName]) {
-
+    if (Worker.workers[name].options[callback]) {
       try {
-        await Worker.workers[jobName].options[callbackName](jobId, jobPayload, error);
+        await Worker.workers[name].options[callback](id, payload, error)
       } catch (error) {
-        console.error(error); // eslint-disable-line no-console
+        console.log("*** Worker - executeJobLifecycleCallback - error:", error)
       }
-
     }
-
   }
-
 }

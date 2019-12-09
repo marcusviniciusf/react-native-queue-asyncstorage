@@ -1,14 +1,12 @@
 /**
- * DB imitation based on array with help of RN AsyncStorage
+ * Database implementation using AsyncStorage.
  */
 
-import storage from './Storage';
-
+// Local
+import storage from "./storage"
 
 /*
-
 === SCHEMA ===
-
 JobSchema = {
   name: 'Job',
   primaryKey: 'id',
@@ -24,62 +22,94 @@ JobSchema = {
     failed: 'date?' // Job failure timestamp (null until failure).
   }
 }
-
 === ====== ===
-
 */
 
-const BACKUP_TIME = 15000;
-const Job = '@queue:Job';
+const BACKUP_TIME = 15000
+const Job = "@queue:Job"
 
 export default class Database {
-  db = [];
+  database = []
 
+  /**
+   * Initialize database and restore based on backup in storage.
+   */
   init = async () => {
-    // await storage.delete(Job); // to delete all jobs
-    await this._restore();
-    await this._backup();
+    await this._restore()
+    await this._backup()
   }
 
+  /**
+   * Restore database by pulling saved jobs from storage.
+   */
   _restore = async () => {
-    const jobDB = await storage.get(Job);
-    this.db = jobDB || [];
+    const jobDB = await storage.get(Job)
+    this.database = jobDB || []
   }
 
+  /**
+   * Backup database by saving storage.
+   */
   _backup = async () => {
-    await storage.save(Job, this.db.slice());
+    await storage.save(Job, this.database.slice())
 
-    setTimeout(await this._backup, BACKUP_TIME);
+    setTimeout(await this._backup, BACKUP_TIME)
   }
 
-  create = (obj) => {
-    let shouldSkip = false; // if obj.id is already in array
+  /**
+   * Add job to database if it doesn't already exist.
+   */
+  addJob = async job => {
+    let shouldSkip = false
 
-    for (let i = 0; i < this.db.length; i += 1) {
-      if (this.db[i] === obj.id) shouldSkip = true;
+    // Check if job is already in the database, skip if so.
+    for (let i = 0; i < this.database.length; i += 1) {
+      if (this.database[i] === job.id) shouldSkip = true
     }
 
-    if (!shouldSkip) this.db.push(obj);
-  };
-
-  objects = () => this.db.slice();
-
-  save = (obj) => {
-    for (let i = 0; i < this.db.length; i += 1) {
-      if (this.db[i] === obj.id) this.db[i] = obj;
+    // If the job doesn't already exist, add it to the database.
+    if (!shouldSkip) {
+      this.database.push(job)
+      await this._backup()
     }
   }
 
-  saveAll = (objs) => {
-    this.db = objs;
+  /**
+   * Return all jobs saved in the database.
+   */
+  objects = () => this.database
+
+  /**
+   * Update a job already existing in the database.
+   */
+  update = async job => {
+    for (let i = 0; i < this.database.length; i += 1) {
+      if (this.database[i] === job.id) this.database[i] = job
+    }
+    await this._backup()
   }
 
-  delete = (obj) => {
-    this.db = this.db.filter(o => o.id !== obj.id);
-  };
+  /**
+   * Update all jobs in the database.
+   */
+  updateAll = async jobs => {
+    this.database = jobs
+    await this._backup()
+  }
 
-  deleteAll = () => {
-    this.db = [];
-  };
+  /**
+   * Delete a job.
+   */
+  delete = async job => {
+    this.database = this.database.filter(o => o.id !== job.id)
+    await this._backup()
+  }
 
+  /**
+   * Delete all jobs.
+   */
+  deleteAll = async () => {
+    this.database = []
+    await this._backup()
+  }
 }
