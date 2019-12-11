@@ -5,6 +5,6 @@
  * @module ReactNativeQueue
  */
 
-import QueueFactory from "./models/queue"
+import QueueFactory from "./model/queue"
 
 export default QueueFactory
