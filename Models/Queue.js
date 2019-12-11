@@ -7,7 +7,7 @@ import promiseReflect from "promise-reflect"
 import _ from "lodash"
 
 // Local
-import database from "../config/database"
+import database from "../config/Database"
 import worker from "./Worker"
 
 export class Queue {
