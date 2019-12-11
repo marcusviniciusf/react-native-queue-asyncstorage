@@ -3,7 +3,7 @@
  */
 
 // Local
-import storage from "./Storage"
+import storage from "./storage"
 
 /*
 === SCHEMA ===

@@ -3,7 +3,7 @@
 
 // Load dependencies
 import should from "should" // eslint-disable-line no-unused-vars
-import Worker from "../Models/Worker"
+import Worker from "../models/worker"
 
 describe("Models/Worker", function() {
   it("#addWorker() should validate input", async () => {
