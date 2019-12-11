@@ -3,8 +3,8 @@
 
 // Load dependencies
 import should from "should"
-import QueueFactory, { Queue } from "../models/queue"
-import Worker from "../models/worker"
+import QueueFactory, { Queue } from "../Models/Queue"
+import Worker from "../Models/Worker"
 
 describe("Models/Queue", function() {
   beforeEach(async () => {

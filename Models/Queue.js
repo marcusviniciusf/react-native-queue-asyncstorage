@@ -8,7 +8,7 @@ import _ from "lodash"
 
 // Local
 import database from "../config/database"
-import worker from "./worker"
+import worker from "./Worker"
 
 export class Queue {
   /**

@@ -1,9 +1,9 @@
 /**
- * Database implementation using AsyncStorage.
+ * Database implementation using AsyncStorage
  */
 
 // Local
-import storage from "./storage"
+import storage from "./Storage"
 
 /*
 === SCHEMA ===
