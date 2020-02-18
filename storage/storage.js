@@ -1,4 +1,8 @@
-import AsyncStorage from '@react-native-community/async-storage'
+import LegacyStorage from "@react-native-community/async-storage-backend-legacy"
+import AsyncStorageFactory from "@react-native-community/async-storage"
+
+const legacy = new LegacyStorage()
+export const AsyncStorage = AsyncStorageFactory.create(legacy, {})
 
 const deviceStorage = {
   /**
@@ -8,13 +12,13 @@ const deviceStorage = {
    */
   get: async key => {
     if (!Array.isArray(key)) {
-      return AsyncStorage.getItem(key).then(value => {
-        return JSON.parse(value)
+      return AsyncStorage.get(key).then(value => {
+        return value ? JSON.parse(value) : []
       })
     }
-    return AsyncStorage.multiGet(key).then(values => {
+    return AsyncStorage.getMultiple(key).then(values => {
       return values.map(value => {
-        return JSON.parse(value[1])
+        return value[1] ? JSON.parse(value[1]) : []
       })
     })
   },
@@ -27,12 +31,12 @@ const deviceStorage = {
    */
   save: async (key, value) => {
     if (!Array.isArray(key)) {
-      return AsyncStorage.setItem(key, JSON.stringify(value))
+      return AsyncStorage.set(key, JSON.stringify(value))
     }
     const pairs = key.map(function(pair) {
       return [pair[0], JSON.stringify(pair[1])]
     })
-    return AsyncStorage.multiSet(pairs)
+    return AsyncStorage.setMultiple(pairs)
   },
 
   /**
@@ -42,9 +46,9 @@ const deviceStorage = {
    */
   delete: async key => {
     if (Array.isArray(key)) {
-      return AsyncStorage.multiRemove(key)
+      return AsyncStorage.removeMultiple(key)
     }
-    return AsyncStorage.removeItem(key)
+    return AsyncStorage.remove(key)
   },
 
   /**
