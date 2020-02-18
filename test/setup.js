@@ -2,6 +2,5 @@
 import "react-native"
 
 // libraries to mock
-import "./mock-async-storage"
 import "./mock-uuid"
 import "./mock-promise-reflect"
