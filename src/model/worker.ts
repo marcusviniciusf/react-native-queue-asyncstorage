@@ -1,12 +1,18 @@
+import type {RawJob} from '../types/Job'
+import type {WorkerOptions, WorkerType} from '../types/Worker'
+
+type Callbacks = keyof Omit<WorkerOptions, 'concurrency'>
+
+type Workers<T extends object> = Record<string, WorkerType<T>>
+
 /**
  * Worker Model
  */
-
-export default class Worker {
+class Worker {
   /**
    * Singleton map of all worker functions assigned to queue.
    */
-  static workers = {}
+  static workers: Workers<any> = {}
 
   /**
    * Assign a worker function to the queue.
@@ -15,20 +21,20 @@ export default class Worker {
    * @param {function} worker The worker function that will execute jobs.
    * @param {object} options Worker options. See README.md for worker options info.
    */
-  addWorker(name, worker, options = {}) {
+  addWorker<T extends object>(name: string, worker: WorkerType<T>, options: WorkerOptions = {}) {
     // Validate input.
     if (!name || !worker) {
-      throw new Error("Job name and associated worker function must be supplied.")
+      throw new Error('Job name and associated worker function must be supplied.')
     }
 
     // Attach options to worker
     worker.options = {
       concurrency: options.concurrency || 1,
-      onStart: options.onStart || null,
-      onSuccess: options.onSuccess || null,
-      onFailure: options.onFailure || null,
-      onFailed: options.onFailed || null,
-      onComplete: options.onComplete || null,
+      onStart: options.onStart || undefined,
+      onSuccess: options.onSuccess || undefined,
+      onFailure: options.onFailure || undefined,
+      onFailed: options.onFailed || undefined,
+      onComplete: options.onComplete || undefined,
     }
 
     Worker.workers[name] = worker
@@ -38,7 +44,7 @@ export default class Worker {
    * Un-assign worker function from queue.
    * @param {string} name Name associated with jobs assigned to this worker.
    */
-  removeWorker(name) {
+  removeWorker(name: string): void {
     delete Worker.workers[name]
   }
 
@@ -49,13 +55,16 @@ export default class Worker {
    * @throws Throws error if no worker is currently assigned to passed in job name.
    * @return {number}
    */
-  getConcurrency(name) {
+  getConcurrency(name: string): number {
     // If no worker assigned to job name, throw error.
     if (!Worker.workers[name]) {
       throw new Error(`Job ${name} does not have a worker assigned to it.`)
     }
+    return Worker.workers[name].options.concurrency ?? 1
+  }
 
-    return Worker.workers[name].options.concurrency
+  get workers() {
+    return Worker.workers
   }
 
   /**
@@ -64,30 +73,38 @@ export default class Worker {
    * @param {object} job Job to execute.
    * @throws Throws error if no worker is currently assigned to passed in job name.
    */
-  async executeJob(job) {
+  async executeJob(job: RawJob) {
     // If no worker assigned to job name, throw error.
     if (!Worker.workers[job.name]) {
       throw new Error(`Job ${job.name} does not have a worker assigned to it.`)
     }
 
-    const id = job.id
-    const name = job.name
-    const timeout = job.timeout
-    const payload = JSON.parse(job.payload)
+    const jobId = job.id
+    const jobName = job.name
+    const jobTimeout = job.timeout
+    const jobPayload = JSON.parse(job.payload) as Record<string, unknown>
+    const workerPromise = Worker.workers[jobName](jobId, jobPayload)
 
     // Run job with timeout to enforce set timeout value.
-    if (timeout > 0) {
-      const timeoutPromise = new Promise((resolve, reject) => {
-        setTimeout(() => {
-          reject(new Error(`TIMEOUT: Job id: ${id} timed out in ${timeout}ms.`))
-        }, timeout)
+    if (jobTimeout > 0) {
+      const promise = new Promise((resolve, reject) => {
+        const timeoutPromise = new Promise((_, rej) => {
+          setTimeout(() => {
+            rej(new Error(`TIMEOUT: Job id: ${jobId} timed out in ${jobTimeout} ms.`))
+          }, jobTimeout)
+        })
+        try {
+          const response = Promise.race([timeoutPromise, workerPromise])
+          resolve(response)
+        } catch (error) {
+          reject(error)
+        }
       })
-
-      return Promise.race([timeoutPromise, Worker.workers[name](id, payload)])
+      return promise
     }
 
     // If no timeout is set, run job normally.
-    return Worker.workers[name](id, payload)
+    return workerPromise
   }
 
   /**
@@ -97,22 +114,30 @@ export default class Worker {
    * @param {string} id Unique id associated with job.
    * @param {object} payload Data payload associated with job.
    */
-  async executeJobLifecycleCallback(callback, name, id, payload, error) {
+  async executeJobLifecycleCallback(
+    callbackName: Callbacks,
+    jobName: string,
+    jobId: string,
+    job: RawJob,
+    response?: any,
+  ) {
     // Validate callback name
-    const validCallbacks = ["onStart", "onSuccess", "onFailure", "onFailed", "onComplete"]
+    const validCallbacks = ['onStart', 'onSuccess', 'onFailure', 'onFailed', 'onComplete']
 
-    if (!validCallbacks.includes(callback)) {
-      throw new Error("Invalid job lifecycle callback name.")
+    if (!validCallbacks.includes(callbackName)) {
+      throw new Error('Invalid job lifecycle callback name.')
     }
 
     // Fire job lifecycle callback if set.
     // Uses a try catch statement to gracefully degrade errors in production.
-    if (Worker.workers[name].options[callback]) {
+    if (Worker.workers[jobName].options[callbackName]) {
       try {
-        await Worker.workers[name].options[callback](id, payload, error)
+        await Worker.workers[jobName].options[callbackName]?.(jobId, job, response)
       } catch (error) {
-        console.log("*** Worker - executeJobLifecycleCallback - error:", error)
+        console.log('*** Worker - executeJobLifecycleCallback - error:', error)
       }
     }
   }
 }
+
+export default Worker

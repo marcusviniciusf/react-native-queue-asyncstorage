@@ -2,15 +2,25 @@
  * Queue Model
  */
 
-import uuid from "react-native-uuid"
-import promiseReflect from "promise-reflect"
-import _ from "lodash"
+import _ from 'lodash'
 
-// Local
-import database from "../storage/database"
-import worker from "./worker"
+// Utils
+import {Uuid} from '../utils/uuid'
+import promiseReflect from '../utils/promise-reflect'
+// Db
+import JobDb from '../storage/database'
+// Worker
+import Worker from './worker'
+// Types
+import type {RawJob, JobMetaData, JobOption} from '../types/Job'
+import type {WorkerOptions, WorkerType} from '../types/Worker'
 
 export class Queue {
+  private database: JobDb | null
+  private worker: Worker
+  private status: string
+  private executeFailedJobsOnStart: boolean
+
   /**
    * Set initial class properties.
    * @constructor
@@ -18,8 +28,8 @@ export class Queue {
    */
   constructor(executeFailedJobsOnStart = false) {
     this.database = null
-    this.worker = new worker()
-    this.status = "inactive"
+    this.worker = new Worker()
+    this.status = 'inactive'
     this.executeFailedJobsOnStart = executeFailedJobsOnStart
   }
 
@@ -28,9 +38,16 @@ export class Queue {
    */
   init = async () => {
     if (this.database === null) {
-      this.database = new database()
+      this.database = new JobDb()
       await this.database.init()
     }
+  }
+
+  /**
+   * @returns true if the Queue is running and false otherwise
+   */
+  get isRunning(): boolean {
+    return this.status === 'active'
   }
 
   /**
@@ -40,20 +57,30 @@ export class Queue {
    * @param {function} worker The worker function that will execute jobs.
    * @param {object} options Worker options. See README.md for worker options info.
    */
-  addWorker(name, worker, options = {}) {
-    try {
-      this.worker.addWorker(name, worker, options)
-    } catch (error) {
-      console.log("*** queue - addWorker - error:", { error })
-    }
+  addWorker<T extends object>(name: string, worker: WorkerType<T>, options: WorkerOptions = {}) {
+    this.worker.addWorker<T>(name, worker, options)
   }
 
   /**
    * Delete worker from queue.
    * @param {string} name Name associated with jobs assigned to this worker.
    */
-  removeWorker(name) {
+  removeWorker(name: string) {
     this.worker.removeWorker(name)
+  }
+
+  /**
+   * @returns the workers map (readonly)
+   */
+  get registeredWorkers() {
+    return this.worker.workers
+  }
+
+  /**
+   * @param job the job which should be requeued
+   */
+  requeueJob(job: RawJob) {
+    this.database?.update({...job, failed: null})
   }
 
   /**
@@ -65,48 +92,48 @@ export class Queue {
    * @param {object} options Job related options like timeout etc. See README.md for job options info.
    * @param {boolean} start Whether or not to immediately begin processing queue.
    */
-  async createJob(name, payload = {}, options = {}, start = true) {
-    // Check if name is supplied.
+  createJob(name: string, payload = {}, options: JobOption = {}, start = true) {
+    // // Check if name is supplied.
     if (!name) {
-      throw new Error("Job name must be supplied.")
-    }
-
-    // Validate options
-    if (options.timeout < 0 || options.attempts < 0) {
-      throw new Error("Invalid job option.")
+      throw new Error('Job name must be supplied.')
     }
 
     // If `executeFailedJobsOnStart` is true, reset all `failed` params.
     if (this.executeFailedJobsOnStart) {
-      const jobs = this.database.objects()
+      const jobs = this.database?.objects() ?? []
 
       for (let i = 0; i < jobs.length; i += 1) {
         jobs[i].failed = null
       }
 
-      this.database.updateAll(jobs)
+      this.database?.updateAll(jobs)
 
       this.executeFailedJobsOnStart = false
     }
 
     // Create and add the new job to the database.
-    await this.database.addJob({
-      id: uuid.v4(),
+
+    const timeout = options?.timeout !== undefined && options.timeout >= 0 ? options.timeout : 25000
+    const job: RawJob = {
+      id: Uuid.v4(),
       name,
       payload: JSON.stringify(payload),
-      data: JSON.stringify({
+      metaData: JSON.stringify({
+        failedAttempts: 0,
+        errors: [],
         attempts: options.attempts || 1,
       }),
       priority: options.priority || 0,
       active: false,
-      timeout: options.timeout >= 0 ? options.timeout : 25000,
+      timeout,
       created: new Date(),
       failed: null,
-    })
+    }
+    this.database?.addJob(job)
 
     // Start queue.
-    if (start && this.status === "inactive") {
-      this.start()
+    if (start && this.status === 'inactive') {
+      void this.start()
     }
   }
 
@@ -120,11 +147,11 @@ export class Queue {
   async start(lifespan = 0) {
     // If queue is already running, don't fire up concurrent loop.
     try {
-      if (this.status === "active") {
+      if (this.status === 'active') {
         return false
       }
 
-      this.status = "active"
+      this.status = 'active'
 
       // Get jobs to process
       const startTime = Date.now()
@@ -135,14 +162,14 @@ export class Queue {
       if (lifespan !== 0) {
         lifespanRemaining = lifespan - (Date.now() - startTime)
         lifespanRemaining = lifespanRemaining === 0 ? -1 : lifespanRemaining // Handle exactly zero lifespan remaining edge case.
-        concurrentJobs = await this.getConcurrentJobs(lifespanRemaining)
+        concurrentJobs = this.getConcurrentJobs(lifespanRemaining)
       } else {
-        concurrentJobs = await this.getConcurrentJobs()
+        concurrentJobs = this.getConcurrentJobs()
       }
 
-      while (this.status === "active" && concurrentJobs.length) {
+      while (this.status === 'active' && concurrentJobs.length) {
         // Loop over jobs and process them concurrently.
-        const processingJobs = concurrentJobs.map(job => {
+        const processingJobs = concurrentJobs.map((job) => {
           return this.processJob(job)
         })
 
@@ -154,17 +181,17 @@ export class Queue {
         if (lifespan !== 0) {
           lifespanRemaining = lifespan - (Date.now() - startTime)
           lifespanRemaining = lifespanRemaining === 0 ? -1 : lifespanRemaining // Handle exactly zero lifespan remaining edge case.
-          concurrentJobs = await this.getConcurrentJobs(lifespanRemaining)
+          concurrentJobs = this.getConcurrentJobs(lifespanRemaining)
         } else {
-          concurrentJobs = await this.getConcurrentJobs()
+          concurrentJobs = this.getConcurrentJobs()
         }
       }
     } catch (error) {
-      console.log("*** Error processing queue:", JSON.stringify(error))
+      console.log('*** Error processing queue:', JSON.stringify(error))
       return false
     }
 
-    this.status = "inactive"
+    this.status = 'inactive'
     return true
   }
 
@@ -174,7 +201,7 @@ export class Queue {
    * queue is restarted by either queue.createJob() or queue.start().
    */
   stop() {
-    this.status = "inactive"
+    this.status = 'inactive'
   }
 
   /**
@@ -183,7 +210,7 @@ export class Queue {
    * @return {promise} Promise that resolves to a collection of all the jobs in the queue.
    */
   getJobs() {
-    return this.database.objects()
+    return this.database?.objects() ?? []
   }
 
   /**
@@ -196,65 +223,56 @@ export class Queue {
    * @param {number} queueLifespanRemaining The remaining lifespan of the current queue process (defaults to indefinite).
    * @return {promise} Promise resolves to an array of job(s) to be processed next by the queue.
    */
-  async getConcurrentJobs(queueLifespanRemaining = 0) {
-    let concurrentJobs = []
-    try {
-      // Get next job from queue.
-      let nextJob = null
+  getConcurrentJobs(queueLifespanRemaining = 0) {
+    let concurrentJobs: RawJob[] = []
+    // Get next job from queue.
+    let nextJob: RawJob | null = null
 
-      // Build query string
-      const timeoutUpperBound = queueLifespanRemaining - 500 > 0 ? queueLifespanRemaining - 499 : 0 // Only get jobs with timeout at least 500ms < queueLifespanRemaining.
+    // Build query string
+    const timeoutUpperBound = queueLifespanRemaining - 500 > 0 ? queueLifespanRemaining - 499 : 0 // Only get jobs with timeout at least 500ms < queueLifespanRemaining.
 
-      let jobs = this.database.objects()
-      jobs = queueLifespanRemaining
-        ? jobs.filter(
-            j => !j.active && j.failed === null && j.timeout > 0 && j.timeout < timeoutUpperBound,
+    let jobs = this.database?.objects() ?? []
+    jobs = queueLifespanRemaining
+      ? jobs.filter(
+          (j) => !j.active && j.failed === null && j.timeout > 0 && j.timeout < timeoutUpperBound,
+        )
+      : jobs.filter((j) => !j.active && j.failed === null)
+    jobs = _.orderBy(jobs, ['priority', 'created'], ['asc', 'asc'])
+    // NOTE: here and below 'created' is sorted by 'asc' however in original it's 'desc'
+
+    if (jobs.length) {
+      nextJob = jobs[0]
+    }
+
+    // If next job exists, get concurrent related jobs appropriately.
+    if (nextJob) {
+      const concurrency = this.worker.getConcurrency(nextJob.name)
+
+      let allRelatedJobs = this.database?.objects() ?? []
+      allRelatedJobs = queueLifespanRemaining
+        ? allRelatedJobs.filter(
+            (j) =>
+              j.name === nextJob?.name &&
+              !j.active &&
+              j.failed === null &&
+              j.timeout > 0 &&
+              j.timeout < timeoutUpperBound,
           )
-        : jobs.filter(j => !j.active && j.failed === null)
-      jobs = _.orderBy(jobs, ["priority", "created"], ["desc", "asc"])
-      // NOTE: here and below 'created' is sorted by 'asc' however in original it's 'desc'
+        : allRelatedJobs.filter((j) => j.name === nextJob?.name && !j.active && j.failed === null)
+      allRelatedJobs = _.orderBy(allRelatedJobs, ['priority', 'created'], ['asc', 'asc'])
 
-      if (jobs.length) {
-        nextJob = jobs[0]
-      }
+      const jobsToMarkActive = allRelatedJobs.slice(0, concurrency)
 
-      // If next job exists, get concurrent related jobs appropriately.
-      if (nextJob) {
-        const concurrency = this.worker.getConcurrency(nextJob.name)
+      // Grab concurrent job ids to reselect jobs as marking these jobs as active will remove
+      // them from initial selection when write transaction exits.
+      const concurrentJobIds = jobsToMarkActive.map((job) => job.id)
 
-        let allRelatedJobs = this.database.objects()
-        allRelatedJobs = queueLifespanRemaining
-          ? allRelatedJobs.filter(
-              j =>
-                j.name === nextJob.name &&
-                !j.active &&
-                j.failed === null &&
-                j.timeout > 0 &&
-                j.timeout < timeoutUpperBound,
-            )
-          : allRelatedJobs.filter(j => j.name === nextJob.name && !j.active && j.failed === null)
-        allRelatedJobs = _.orderBy(allRelatedJobs, ["priority", "created"], ["desc", "asc"])
+      // Reselect now-active concurrent jobs by id.
+      let reselectedJobs = this.database?.objects() ?? []
+      reselectedJobs = reselectedJobs.filter((rj) => _.includes(concurrentJobIds, rj.id))
+      reselectedJobs = _.orderBy(reselectedJobs, ['priority', 'created'], ['desc', 'asc'])
 
-        let jobsToMarkActive = allRelatedJobs.slice(0, concurrency)
-
-        // Grab concurrent job ids to reselect jobs as marking these jobs as active will remove
-        // them from initial selection when write transaction exits.
-        const concurrentJobIds = jobsToMarkActive.map(job => job.id)
-
-        // Mark concurrent jobs as active
-        jobsToMarkActive = jobsToMarkActive.map(job => {
-          job.active = true
-        })
-
-        // Reselect now-active concurrent jobs by id.
-        let reselectedJobs = this.database.objects()
-        reselectedJobs = reselectedJobs.filter(rj => _.includes(concurrentJobIds, rj.id))
-        reselectedJobs = _.orderBy(reselectedJobs, ["priority", "created"], ["desc", "asc"])
-
-        concurrentJobs = reselectedJobs.slice(0, concurrency)
-      }
-    } catch (error) {
-      console.log("*** Error getting concurrent jobs:", { error })
+      concurrentJobs = reselectedJobs.slice(0, concurrency)
     }
 
     return concurrentJobs
@@ -269,75 +287,57 @@ export class Queue {
    * "attempts" setting (defaults to 1), after which it will be marked as failed and not re-attempted further.
    * @param {object} job Job model object
    */
-  async processJob(job) {
+  async processJob(job: RawJob) {
     // Data must be cloned off the job object for several lifecycle callbacks to work correctly.
     // This is because job is deleted before some callbacks are called if job processed successfully.
     // More info: https://github.com/billmalarky/react-native-queue/issues/2#issuecomment-361418965
-    const name = job.name
-    const id = job.id
-    const payload = JSON.parse(job.payload)
+    const jobName = job.name
+    const jobId = job.id
 
     // Fire onStart job lifecycle callback
-    this.worker.executeJobLifecycleCallback("onStart", name, id, payload)
+    this.worker.executeJobLifecycleCallback('onStart', jobName, jobId, job)
 
     try {
-      const executionResult = await this.worker.executeJob(job)
-      if (!executionResult) throw new Error("Execution failure")
+      const response = await this.worker.executeJob(job) // here we catch js/network errors
 
       // On successful job completion, remove job
-      this.database.delete(job)
+      this.database?.delete(job)
 
       // Job has processed successfully, fire onSuccess and onComplete job lifecycle callbacks.
-      this.worker.executeJobLifecycleCallback("onSuccess", name, id, payload)
-      this.worker.executeJobLifecycleCallback("onComplete", name, id, payload)
+      this.worker.executeJobLifecycleCallback('onSuccess', jobName, jobId, job, response)
+      this.worker.executeJobLifecycleCallback('onComplete', jobName, jobId, job)
     } catch (error) {
-      console.log("*** Queue - processJob - error:", { error })
       // Handle job failure logic, including retries.
-      const data = JSON.parse(job.data)
+      const jobMetaData = JSON.parse(job?.metaData) as JobMetaData
+      const {attempts, errors} = jobMetaData
+      let {failedAttempts} = jobMetaData
 
       // Increment failed attempts number
-      if (!data.failedAttempts) {
-        data.failedAttempts = 1
-      } else {
-        data.failedAttempts += 1
-      }
-
-      // Log error
-      if (!data.errors) {
-        data.errors = [error.message]
-      } else {
-        data.errors.push(error.message)
-      }
-
-      job.data = JSON.stringify(data)
-
-      // Reset active status
-      job.active = false
+      failedAttempts++
 
       // Mark job as failed if too many attempts
-      if (data.failedAttempts >= data.attempts) {
-        job.failed = new Date()
+      let failed: null | string = null
+      if (failedAttempts >= attempts) {
+        failed = new Date().toISOString()
       }
 
-      this.database.update(job)
+      const errorMessage = error instanceof Error ? error.message : (error as string).toString()
+      const metaData = JSON.stringify({
+        ...jobMetaData,
+        errors: [...(errors ?? []), errorMessage],
+        failedAttempts,
+      })
+      const updatedJob = {...job, metaData, failed}
+
+      this.database?.update({...updatedJob, active: false})
 
       // Execute job onFailure lifecycle callback.
-      if (
-        // filter network errors
-        error.message.indexOf("TIMEOUT") !== -1 ||
-        error.message.indexOf("Network request failed") !== -1
-      )
-        return false
-
-      if (data.failedAttempts === 1 || data.failedAttempts === data.attempts) {
-        // report only first and last error
-        this.worker.executeJobLifecycleCallback("onFailure", name, id, payload, error)
-      }
+      this.worker.executeJobLifecycleCallback('onFailure', jobName, jobId, updatedJob, error)
 
       // If job has failed all attempts execute job onFailed and onComplete lifecycle callbacks.
-      if (data.failedAttempts >= data.attempts) {
-        this.worker.executeJobLifecycleCallback("onFailed", name, id, payload, error)
-        this.worker.executeJobLifecycleCallback("onComplete", name, id, payload)
+      if (failedAttempts >= attempts) {
+        this.worker.executeJobLifecycleCallback('onFailed', jobName, jobId, updatedJob, error)
+        this.worker.executeJobLifecycleCallback('onComplete', jobName, jobId, updatedJob)
       }
     }
   }
@@ -348,19 +348,19 @@ export class Queue {
    * will be deleted. Otherwise all jobs in queue will be deleted.
    * @param {string} name Name associated with job (and related job worker).
    */
-  async flushQueue(name = null) {
-    if (name) {
-      let jobs = this.database.objects()
-      jobs = jobs.filter(j => j.name === name)
+  flushQueue(jobName: string | null = null) {
+    if (jobName) {
+      let jobs = this.database?.objects() ?? []
+      jobs = jobs.filter((j) => j.name === jobName)
 
       if (jobs.length) {
         // NOTE: might not work
-        jobs.forEach(job => {
-          this.database.delete(job)
+        jobs.forEach((job) => {
+          this.database?.delete(job)
         })
       }
     } else {
-      this.database.deleteAll()
+      this.database?.deleteAll()
     }
   }
 }
@@ -370,9 +370,11 @@ export class Queue {
  * @param {boolean} executeFailedJobsOnStart Indicates if previously failed jobs will be executed on start (actually when created new job).
  * @return {Queue} A queue instance.
  */
-export default async function queueFactory(executeFailedJobsOnStart = false) {
+async function queueFactory(executeFailedJobsOnStart = false) {
   const queue = new Queue(executeFailedJobsOnStart)
   await queue.init()
 
   return queue
 }
+
+export default queueFactory
