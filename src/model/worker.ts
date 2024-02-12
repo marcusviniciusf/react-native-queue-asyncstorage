@@ -1,7 +1,7 @@
-import type {RawJob} from '../types/Job'
-import type {WorkerOptions, WorkerType} from '../types/Worker'
+import type {Job} from '../types/Job'
+import type {WorkerOption, WorkerType} from '../types/Worker'
 
-type Callbacks = keyof Omit<WorkerOptions, 'concurrency'>
+type Callbacks = keyof Omit<WorkerOption, 'concurrency'>
 
 type Workers<T extends object> = Record<string, WorkerType<T>>
 
@@ -21,7 +21,7 @@ class Worker {
    * @param {function} worker The worker function that will execute jobs.
    * @param {object} options Worker options. See README.md for worker options info.
    */
-  addWorker<T extends object>(name: string, worker: WorkerType<T>, options: WorkerOptions = {}) {
+  addWorker<T extends object>(name: string, worker: WorkerType<T>, options: WorkerOption = {}) {
     // Validate input.
     if (!name || !worker) {
       throw new Error('Job name and associated worker function must be supplied.')
@@ -60,7 +60,7 @@ class Worker {
     if (!Worker.workers[name]) {
       throw new Error(`Job ${name} does not have a worker assigned to it.`)
     }
-    return Worker.workers[name].options.concurrency ?? 1
+    return Worker.workers[name].options?.concurrency ?? 1
   }
 
   get workers() {
@@ -73,7 +73,7 @@ class Worker {
    * @param {object} job Job to execute.
    * @throws Throws error if no worker is currently assigned to passed in job name.
    */
-  async executeJob(job: RawJob) {
+  async executeJob(job: Job) {
     // If no worker assigned to job name, throw error.
     if (!Worker.workers[job.name]) {
       throw new Error(`Job ${job.name} does not have a worker assigned to it.`)
@@ -118,7 +118,7 @@ class Worker {
     callbackName: Callbacks,
     jobName: string,
     jobId: string,
-    job: RawJob,
+    job: Job,
     response?: any,
   ) {
     // Validate callback name
@@ -130,9 +130,9 @@ class Worker {
 
     // Fire job lifecycle callback if set.
     // Uses a try catch statement to gracefully degrade errors in production.
-    if (Worker.workers[jobName].options[callbackName]) {
+    if (Worker.workers[jobName].options?.[callbackName]) {
       try {
-        await Worker.workers[jobName].options[callbackName]?.(jobId, job, response)
+        await Worker.workers[jobName].options?.[callbackName]?.(jobId, job, response)
       } catch (error) {
         console.log('*** Worker - executeJobLifecycleCallback - error:', error)
       }

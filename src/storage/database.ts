@@ -1,11 +1,11 @@
 import storage from './storage'
-import type {RawJob} from '../types/Job'
+import type {Job} from '../types/Job'
 
 const BACKUP_TIME = 7500
 const jobKey = '@queue:Job'
 
 export default class Database {
-  private database: RawJob[] = []
+  private database: Job[] = []
 
   /**
    * Initialize database and restore based on backup in storage.
@@ -19,7 +19,7 @@ export default class Database {
    * Restore database by pulling saved jobs from storage.
    */
   private _restore = async (): Promise<void> => {
-    const jobDB = await storage.get<RawJob>(jobKey)
+    const jobDB = await storage.get<Job>(jobKey)
     this.database = jobDB || []
   }
 
@@ -44,7 +44,7 @@ export default class Database {
   /**
    * Add job to database if it doesn't already exist.
    */
-  public addJob = (job: RawJob) => {
+  public addJob = (job: Job) => {
     const shouldSkip = this.database.some((o) => o.id === job.id)
 
     // If the job doesn't already exist, add it to the database.
@@ -56,12 +56,12 @@ export default class Database {
   /**
    * Return all jobs saved in the database.
    */
-  public objects = (): RawJob[] => this.database.slice()
+  public objects = (): Job[] => this.database.slice()
 
   /**
    * Update a job already existing in the database.
    */
-  public update = (job: RawJob) => {
+  public update = (job: Job) => {
     const clonnedDb = this.database.slice()
     const index = clonnedDb.findIndex((o) => o.id === job.id)
     if (index !== -1) {
@@ -75,14 +75,14 @@ export default class Database {
   /**
    * Update all jobs in the database.
    */
-  public updateAll = (jobs: RawJob[]) => {
+  public updateAll = (jobs: Job[]) => {
     this.database = jobs
   }
 
   /**
    * Delete a job.
    */
-  public delete = (job: RawJob) => {
+  public delete = (job: Job) => {
     let clonnedDb = this.database.slice()
     clonnedDb = clonnedDb.filter((o) => o.id !== job.id)
     this.database = clonnedDb

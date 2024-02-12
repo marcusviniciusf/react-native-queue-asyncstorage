@@ -1,16 +1,4 @@
-export interface Job<T extends object> {
-  id: string
-  name: string
-  payload: T
-  metaData: JobMetaData
-  priority: number
-  active: boolean
-  timeout: number
-  created: Date
-  failed: Date | null
-}
-
-export interface RawJob {
+export interface Job {
   id: string
   name: string
   payload: string

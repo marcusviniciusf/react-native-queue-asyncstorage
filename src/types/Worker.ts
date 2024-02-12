@@ -1,6 +1,6 @@
-import type {RawJob} from './Job'
+import type {Job} from './Job'
 
-export interface WorkerOptions {
+export interface WorkerOption {
   // Set max number of jobs for this worker to process concurrently.
   // Defaults to 1.
   concurrency?: number
@@ -13,21 +13,21 @@ export interface WorkerOptions {
   // (even if the callback returns a promise it will not be "awaited" on).
   // As such, do not place any logic in onStart that your actual job worker function will depend on,
   // this type of logic should of course go inside the job worker function itself.
-  onStart?: (id: string, job: RawJob) => Promise<void>
+  onStart?: (id: string, job: Job) => Promise<void>
 
   // onSuccess job callback handler is fired after a job successfully completes processing.
-  onSuccess?: (id: string, job: RawJob, response: any) => Promise<void>
+  onSuccess?: (id: string, job: Job, response: any) => Promise<void>
 
   // onFailure job callback handler is fired after each time a job fails (onFailed also fires if job has reached max number of attempts).
-  onFailure?: (id: string, job: RawJob, error: any) => Promise<void>
+  onFailure?: (id: string, job: Job, error: any) => Promise<void>
 
   // onFailed job callback handler is fired if job fails enough times to reach max number of attempts.
-  onFailed?: (id: string, job: RawJob, error: any) => Promise<void>
+  onFailed?: (id: string, job: Job, error: any) => Promise<void>
 
   // onComplete job callback handler fires after job has completed processing successfully or failed entirely.
-  onComplete?: (id: string, job: RawJob) => Promise<void>
+  onComplete?: (id: string, job: Job) => Promise<void>
 }
 
 export type WorkerType<T extends object> = ((jobId: string, payload: T) => void) & {
-  options: WorkerOptions
+  options?: WorkerOption
 }

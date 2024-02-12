@@ -12,8 +12,8 @@ import JobDb from '../storage/database'
 // Worker
 import Worker from './worker'
 // Types
-import type {RawJob, JobMetaData, JobOption} from '../types/Job'
-import type {WorkerOptions, WorkerType} from '../types/Worker'
+import type {Job, JobMetaData, JobOption} from '../types/Job'
+import type {WorkerOption, WorkerType} from '../types/Worker'
 
 export class Queue {
   private database: JobDb | null
@@ -57,7 +57,7 @@ export class Queue {
    * @param {function} worker The worker function that will execute jobs.
    * @param {object} options Worker options. See README.md for worker options info.
    */
-  addWorker<T extends object>(name: string, worker: WorkerType<T>, options: WorkerOptions = {}) {
+  addWorker<T extends object>(name: string, worker: WorkerType<T>, options: WorkerOption = {}) {
     this.worker.addWorker<T>(name, worker, options)
   }
 
@@ -79,7 +79,7 @@ export class Queue {
   /**
    * @param job the job which should be requeued
    */
-  requeueJob(job: RawJob) {
+  requeueJob(job: Job) {
     this.database?.update({...job, failed: null})
   }
 
@@ -114,7 +114,7 @@ export class Queue {
     // Create and add the new job to the database.
 
     const timeout = options?.timeout !== undefined && options.timeout >= 0 ? options.timeout : 25000
-    const job: RawJob = {
+    const job: Job = {
       id: Uuid.v4(),
       name,
       payload: JSON.stringify(payload),
@@ -213,6 +213,10 @@ export class Queue {
     return this.database?.objects() ?? []
   }
 
+  removeJob(job: Job) {
+    this.database?.delete(job)
+  }
+
   /**
    * Get the next job(s) that should be processed by the queue.
    * - If the next job to be processed by the queue is associated with a
@@ -224,9 +228,9 @@ export class Queue {
    * @return {promise} Promise resolves to an array of job(s) to be processed next by the queue.
    */
   getConcurrentJobs(queueLifespanRemaining = 0) {
-    let concurrentJobs: RawJob[] = []
+    let concurrentJobs: Job[] = []
     // Get next job from queue.
-    let nextJob: RawJob | null = null
+    let nextJob: Job | null = null
 
     // Build query string
     const timeoutUpperBound = queueLifespanRemaining - 500 > 0 ? queueLifespanRemaining - 499 : 0 // Only get jobs with timeout at least 500ms < queueLifespanRemaining.
@@ -287,7 +291,7 @@ export class Queue {
    * "attempts" setting (defaults to 1), after which it will be marked as failed and not re-attempted further.
    * @param {object} job Job model object
    */
-  async processJob(job: RawJob) {
+  async processJob(job: Job) {
     // Data must be cloned off the job object for several lifecycle callbacks to work correctly.
     // This is because job is deleted before some callbacks are called if job processed successfully.
     // More info: https://github.com/billmalarky/react-native-queue/issues/2#issuecomment-361418965
