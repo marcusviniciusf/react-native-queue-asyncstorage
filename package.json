@@ -1,7 +1,7 @@
 {
-  "name": "react-native-queue",
+  "name": "react-native-queue-asyncstorage",
   "version": "2.0.0",
-  "description": "A React Native Job Queue",
+  "description": "A React Native Async Job Queue",
   "main": "lib/commonjs/index.js",
   "module": "lib/module/index.js",
   "react-native": "src/index.ts",

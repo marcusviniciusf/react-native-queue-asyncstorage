@@ -1,1 +1,4 @@
 /coverage
+/lib
+# To remove after fix tests
+__mocks__
