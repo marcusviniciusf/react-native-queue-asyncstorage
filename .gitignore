@@ -1,4 +1,6 @@
-/node_modules
+node_modules
 /coverage
 /.idea
 /reactNativeQueue.realm*
+# generated files by bob
+/lib
