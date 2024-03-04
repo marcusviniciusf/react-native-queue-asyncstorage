@@ -4,7 +4,6 @@ export interface Job {
   payload: string
   metaData: string
   priority: number
-  active: boolean
   timeout: number
   created: Date
   failed: string | null
